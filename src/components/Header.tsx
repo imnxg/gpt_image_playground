@@ -9,6 +9,7 @@ import HistoryModal from './HistoryModal'
 import { useFavoriteCollectionTitle } from './FavoriteCollections'
 import { EditIcon, HelpCircleIcon, HistoryIcon, InstallIcon, PhotoIcon, SettingsIcon } from './icons'
 import { closeAmazonStudio, isAmazonStudioHash, openAmazonStudio } from '../features/amazonStudio/AmazonStudio'
+import { closeWalmartStudio, isWalmartStudioHash, openWalmartStudio } from '../features/walmartStudio/WalmartStudio'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
@@ -41,11 +42,15 @@ export default function Header() {
   const [scrollDirection, setScrollDirection] = useState<'up' | 'down'>('up')
   const [showHistoryModal, setShowHistoryModal] = useState(false)
   const [showAmazonStudio, setShowAmazonStudio] = useState(() => isAmazonStudioHash())
+  const [showWalmartStudio, setShowWalmartStudio] = useState(() => isWalmartStudioHash())
   const historyButtonRef = useRef<HTMLButtonElement>(null)
   const createConversation = useStore((s) => s.createAgentConversation)
 
   useEffect(() => {
-    const update = () => setShowAmazonStudio(isAmazonStudioHash())
+    const update = () => {
+      setShowAmazonStudio(isAmazonStudioHash())
+      setShowWalmartStudio(isWalmartStudioHash())
+    }
     window.addEventListener('hashchange', update)
     return () => window.removeEventListener('hashchange', update)
   }, [])
@@ -94,6 +99,11 @@ export default function Header() {
   const installTooltip = useTooltip()
   const helpTooltip = useTooltip()
   const settingsTooltip = useTooltip()
+
+  const closeMarketplaceStudio = () => {
+    closeAmazonStudio()
+    closeWalmartStudio()
+  }
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (event: Event) => {
@@ -196,14 +206,14 @@ export default function Header() {
             <button
               type="button"
               onClick={() => {
-                if (showAmazonStudio) closeAmazonStudio()
+                if (showAmazonStudio || showWalmartStudio) closeMarketplaceStudio()
                 else openAmazonStudio()
               }}
-              className={`hidden sm:inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${showAmazonStudio ? 'bg-blue-600 text-white hover:bg-blue-500' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.04] dark:hover:text-gray-200'}`}
-              title={showAmazonStudio ? '返回图库' : '亚马逊工作台'}
+              className={`hidden sm:inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${showAmazonStudio || showWalmartStudio ? 'bg-blue-600 text-white hover:bg-blue-500' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.04] dark:hover:text-gray-200'}`}
+              title={showAmazonStudio || showWalmartStudio ? '返回图库' : '亚马逊工作台'}
             >
               <PhotoIcon className="h-4 w-4" />
-              {showAmazonStudio ? '返回图库' : '亚马逊工作台'}
+              {showAmazonStudio || showWalmartStudio ? '返回图库' : '亚马逊工作台'}
             </button>
             {appMode === 'agent' && <div className="hidden sm:flex items-center gap-1 relative">
               <button
@@ -259,20 +269,20 @@ export default function Header() {
             <button
               type="button"
               onClick={() => {
-                closeAmazonStudio()
+                closeMarketplaceStudio()
                 setAppMode('gallery')
               }}
-              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${!showAmazonStudio && appMode === 'gallery' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${!showAmazonStudio && !showWalmartStudio && appMode === 'gallery' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
             >
               画廊
             </button>
             <button
               type="button"
               onClick={() => {
-                closeAmazonStudio()
+                closeMarketplaceStudio()
                 setAppMode('agent')
               }}
-              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${!showAmazonStudio && appMode === 'agent' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${!showAmazonStudio && !showWalmartStudio && appMode === 'agent' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
             >
               Agent
             </button>
@@ -282,6 +292,13 @@ export default function Header() {
               className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${showAmazonStudio ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
             >
               Amazon
+            </button>
+            <button
+              type="button"
+              onClick={openWalmartStudio}
+              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${showWalmartStudio ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+            >
+              Walmart
             </button>
           </div>
           <div className="flex items-center gap-1 shrink-0">
@@ -341,33 +358,40 @@ export default function Header() {
           </div>
         </div>
         <div className={`safe-area-x sm:hidden overflow-hidden transition-all duration-300 ease-in-out ${appMode === 'gallery' && scrollDirection === 'down' ? 'max-h-0 opacity-0 pb-0' : 'max-h-20 opacity-100 pb-2'}`}>
-          <div className="grid grid-cols-3 gap-1 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-100/70 dark:bg-white/[0.04] p-1 mx-2">
+          <div className="grid grid-cols-4 gap-1 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-100/70 dark:bg-white/[0.04] p-1 mx-2">
             <button
               type="button"
               onClick={() => {
-                closeAmazonStudio()
+                closeMarketplaceStudio()
                 setAppMode('gallery')
               }}
-              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${!showAmazonStudio && appMode === 'gallery' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+              className={`px-2 py-1.5 rounded-lg text-sm transition-colors ${!showAmazonStudio && !showWalmartStudio && appMode === 'gallery' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
             >
               画廊
             </button>
             <button
               type="button"
               onClick={() => {
-                closeAmazonStudio()
+                closeMarketplaceStudio()
                 setAppMode('agent')
               }}
-              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${!showAmazonStudio && appMode === 'agent' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+              className={`px-2 py-1.5 rounded-lg text-sm transition-colors ${!showAmazonStudio && !showWalmartStudio && appMode === 'agent' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
             >
               Agent
             </button>
             <button
               type="button"
               onClick={openAmazonStudio}
-              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${showAmazonStudio ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+              className={`px-2 py-1.5 rounded-lg text-sm transition-colors ${showAmazonStudio ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
             >
               Amazon
+            </button>
+            <button
+              type="button"
+              onClick={openWalmartStudio}
+              className={`px-2 py-1.5 rounded-lg text-sm transition-colors ${showWalmartStudio ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+            >
+              Walmart
             </button>
           </div>
         </div>

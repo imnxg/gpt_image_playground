@@ -22,6 +22,7 @@ import SupportPromptModal from './components/SupportPromptModal'
 import { FavoriteCollectionPickerModal, FavoriteCollectionsView, ManageCollectionsModal } from './components/FavoriteCollections'
 import { useGlobalClickSuppression } from './lib/clickSuppression'
 import AmazonStudio, { isAmazonStudioHash } from './features/amazonStudio/AmazonStudio'
+import WalmartStudio, { isWalmartStudioHash } from './features/walmartStudio/WalmartStudio'
 
 let customProviderConfigUrlImportStarted = false
 
@@ -31,11 +32,15 @@ export default function App() {
   const filterFavorite = useStore((s) => s.filterFavorite)
   const activeFavoriteCollectionId = useStore((s) => s.activeFavoriteCollectionId)
   const [showAmazonStudio, setShowAmazonStudio] = useState(() => isAmazonStudioHash())
+  const [showWalmartStudio, setShowWalmartStudio] = useState(() => isWalmartStudioHash())
   useDockerApiUrlMigrationNotice()
   useGlobalClickSuppression()
 
   useEffect(() => {
-    const update = () => setShowAmazonStudio(isAmazonStudioHash())
+    const update = () => {
+      setShowAmazonStudio(isAmazonStudioHash())
+      setShowWalmartStudio(isWalmartStudioHash())
+    }
     window.addEventListener('hashchange', update)
     return () => window.removeEventListener('hashchange', update)
   }, [])
@@ -120,6 +125,8 @@ export default function App() {
       <Header />
       {showAmazonStudio ? (
         <AmazonStudio />
+      ) : showWalmartStudio ? (
+        <WalmartStudio />
       ) : appMode === 'agent' ? (
         <AgentWorkspace />
       ) : (
