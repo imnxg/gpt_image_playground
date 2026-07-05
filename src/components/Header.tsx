@@ -7,7 +7,8 @@ import ViewportTooltip from './ViewportTooltip'
 import HelpModal from './HelpModal'
 import HistoryModal from './HistoryModal'
 import { useFavoriteCollectionTitle } from './FavoriteCollections'
-import { EditIcon, HelpCircleIcon, HistoryIcon, InstallIcon, SettingsIcon } from './icons'
+import { EditIcon, HelpCircleIcon, HistoryIcon, InstallIcon, PhotoIcon, SettingsIcon } from './icons'
+import { closeAmazonStudio, isAmazonStudioHash, openAmazonStudio } from '../features/amazonStudio/AmazonStudio'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
@@ -39,8 +40,15 @@ export default function Header() {
   const [hintVisible, setHintVisible] = useState(false)
   const [scrollDirection, setScrollDirection] = useState<'up' | 'down'>('up')
   const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [showAmazonStudio, setShowAmazonStudio] = useState(() => isAmazonStudioHash())
   const historyButtonRef = useRef<HTMLButtonElement>(null)
   const createConversation = useStore((s) => s.createAgentConversation)
+
+  useEffect(() => {
+    const update = () => setShowAmazonStudio(isAmazonStudioHash())
+    window.addEventListener('hashchange', update)
+    return () => window.removeEventListener('hashchange', update)
+  }, [])
 
   useEffect(() => {
     if (appMode === 'agent') {
@@ -185,6 +193,18 @@ export default function Header() {
                 </a>
               )}
             </h1>
+            <button
+              type="button"
+              onClick={() => {
+                if (showAmazonStudio) closeAmazonStudio()
+                else openAmazonStudio()
+              }}
+              className={`hidden sm:inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${showAmazonStudio ? 'bg-blue-600 text-white hover:bg-blue-500' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.04] dark:hover:text-gray-200'}`}
+              title={showAmazonStudio ? '返回图库' : '亚马逊工作台'}
+            >
+              <PhotoIcon className="h-4 w-4" />
+              {showAmazonStudio ? '返回图库' : '亚马逊工作台'}
+            </button>
             {appMode === 'agent' && <div className="hidden sm:flex items-center gap-1 relative">
               <button
                 ref={historyButtonRef}
@@ -238,17 +258,30 @@ export default function Header() {
           <div className="hidden sm:flex items-center gap-1 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-100/70 dark:bg-white/[0.04] p-1 mr-4">
             <button
               type="button"
-              onClick={() => setAppMode('gallery')}
-              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'gallery' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+              onClick={() => {
+                closeAmazonStudio()
+                setAppMode('gallery')
+              }}
+              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${!showAmazonStudio && appMode === 'gallery' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
             >
               画廊
             </button>
             <button
               type="button"
-              onClick={() => setAppMode('agent')}
-              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'agent' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+              onClick={() => {
+                closeAmazonStudio()
+                setAppMode('agent')
+              }}
+              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${!showAmazonStudio && appMode === 'agent' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
             >
               Agent
+            </button>
+            <button
+              type="button"
+              onClick={openAmazonStudio}
+              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${showAmazonStudio ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+            >
+              Amazon
             </button>
           </div>
           <div className="flex items-center gap-1 shrink-0">
@@ -308,20 +341,33 @@ export default function Header() {
           </div>
         </div>
         <div className={`safe-area-x sm:hidden overflow-hidden transition-all duration-300 ease-in-out ${appMode === 'gallery' && scrollDirection === 'down' ? 'max-h-0 opacity-0 pb-0' : 'max-h-20 opacity-100 pb-2'}`}>
-          <div className="grid grid-cols-2 gap-1 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-100/70 dark:bg-white/[0.04] p-1 mx-2">
+          <div className="grid grid-cols-3 gap-1 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-100/70 dark:bg-white/[0.04] p-1 mx-2">
             <button
               type="button"
-              onClick={() => setAppMode('gallery')}
-              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'gallery' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+              onClick={() => {
+                closeAmazonStudio()
+                setAppMode('gallery')
+              }}
+              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${!showAmazonStudio && appMode === 'gallery' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
             >
               画廊
             </button>
             <button
               type="button"
-              onClick={() => setAppMode('agent')}
-              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'agent' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+              onClick={() => {
+                closeAmazonStudio()
+                setAppMode('agent')
+              }}
+              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${!showAmazonStudio && appMode === 'agent' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
             >
               Agent
+            </button>
+            <button
+              type="button"
+              onClick={openAmazonStudio}
+              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${showAmazonStudio ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+            >
+              Amazon
             </button>
           </div>
         </div>

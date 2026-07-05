@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { initStore } from './store'
 import { useStore } from './store'
 import { activateFirstImportedProfile, buildSettingsFromUrlParams, clearUrlSettingParams, hasUrlSettingParams } from './lib/urlSettings'
@@ -21,6 +21,7 @@ import ImageContextMenu from './components/ImageContextMenu'
 import SupportPromptModal from './components/SupportPromptModal'
 import { FavoriteCollectionPickerModal, FavoriteCollectionsView, ManageCollectionsModal } from './components/FavoriteCollections'
 import { useGlobalClickSuppression } from './lib/clickSuppression'
+import AmazonStudio, { isAmazonStudioHash } from './features/amazonStudio/AmazonStudio'
 
 let customProviderConfigUrlImportStarted = false
 
@@ -29,8 +30,15 @@ export default function App() {
   const appMode = useStore((s) => s.appMode)
   const filterFavorite = useStore((s) => s.filterFavorite)
   const activeFavoriteCollectionId = useStore((s) => s.activeFavoriteCollectionId)
+  const [showAmazonStudio, setShowAmazonStudio] = useState(() => isAmazonStudioHash())
   useDockerApiUrlMigrationNotice()
   useGlobalClickSuppression()
+
+  useEffect(() => {
+    const update = () => setShowAmazonStudio(isAmazonStudioHash())
+    window.addEventListener('hashchange', update)
+    return () => window.removeEventListener('hashchange', update)
+  }, [])
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
@@ -110,7 +118,9 @@ export default function App() {
   return (
     <>
       <Header />
-      {appMode === 'agent' ? (
+      {showAmazonStudio ? (
+        <AmazonStudio />
+      ) : appMode === 'agent' ? (
         <AgentWorkspace />
       ) : (
         <main data-home-main data-drag-select-surface className="pb-48">

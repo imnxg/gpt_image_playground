@@ -97,6 +97,23 @@ export function EditIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+export function PhotoIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.6-4.6a2 2 0 012.8 0L16 16m-2-2l1.6-1.6a2 2 0 012.8 0L20 14m-4-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    </svg>
+  )
+}
+
+export function EyeIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 12s3.75-6.75 9.75-6.75S21.75 12 21.75 12 18 18.75 12 18.75 2.25 12 2.25 12z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
+    </svg>
+  )
+}
+
 export function RefreshIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
