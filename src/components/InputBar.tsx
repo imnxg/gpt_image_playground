@@ -625,6 +625,7 @@ export default function InputBar() {
   const [submitHover, setSubmitHover] = useState(false)
   const [attachHover, setAttachHover] = useState(false)
   const [imageHintId, setImageHintId] = useState<string | null>(null)
+  const [barCollapsed, setBarCollapsed] = useState(false)
   const [mobileCollapsed, setMobileCollapsed] = useState(false)
   const [showSizePicker, setShowSizePicker] = useState(false)
   const [showMobileUploadMenu, setShowMobileUploadMenu] = useState(false)
@@ -659,6 +660,10 @@ export default function InputBar() {
     document.documentElement.style.setProperty('--input-bar-clearance', `${Math.ceil(clearance)}px`)
   }, [])
 
+  useEffect(() => {
+    updateInputBarClearance()
+  }, [barCollapsed, mobileCollapsed, updateInputBarClearance])
+
   useLayoutEffect(() => {
     const bar = cardRef.current?.closest<HTMLElement>('[data-input-bar]')
     if (!bar) return
@@ -689,6 +694,7 @@ export default function InputBar() {
   const [nInputFocused, setNInputFocused] = useState(false)
   const dragCounter = useRef(0)
   const isMobile = useIsMobile()
+  const isInputCollapsed = isMobile ? mobileCollapsed : barCollapsed
 
   const settingsActiveProfile = useMemo(() => getActiveApiProfile(settings), [settings])
   const currentActiveProfile = useMemo(() => (
@@ -1372,6 +1378,7 @@ export default function InputBar() {
   }, [addInputImage, showToast])
 
   const adjustTextareaHeight = useCallback(() => {
+    if (isInputCollapsed) return
     const el = textareaRef.current
     if (!el) return
 
@@ -1408,7 +1415,7 @@ export default function InputBar() {
     el.style.overflowY = desired > maxH ? 'auto' : 'hidden'
 
     prevHeightRef.current = targetH
-  }, [])
+  }, [isInputCollapsed])
 
   // 同步 prompt 至 contentEditable
   useEffect(() => {
@@ -1450,7 +1457,7 @@ export default function InputBar() {
 
   useEffect(() => {
     adjustTextareaHeight()
-  }, [prompt, inputImages, adjustTextareaHeight, isMobile, mobileCollapsed])
+  }, [prompt, inputImages, adjustTextareaHeight, isMobile, mobileCollapsed, isInputCollapsed])
 
   // 监听 selectionchange 更新光标位置（onSelect 在 contentEditable 下不可靠）
   useEffect(() => {
@@ -1961,7 +1968,30 @@ export default function InputBar() {
           onDownloadSelected={handleDownloadSelected}
           onDeleteSelected={handleDeleteSelected}
         />
-        <div ref={cardRef} className="bg-white/70 dark:bg-gray-900/70 backdrop-blur-2xl border border-white/50 dark:border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl p-3 sm:p-4 ring-1 ring-black/5 dark:ring-white/10">
+        {barCollapsed && !isMobile ? (
+          <button
+            type="button"
+            onClick={() => setBarCollapsed(false)}
+            className="mx-auto flex w-full max-w-xl items-center gap-3 rounded-2xl border border-white/60 bg-white/80 px-4 py-3 text-left shadow-[0_8px_30px_rgb(0,0,0,0.08)] ring-1 ring-black/5 backdrop-blur-2xl transition hover:bg-white dark:border-white/[0.08] dark:bg-gray-900/80 dark:ring-white/10 dark:hover:bg-gray-900"
+            title="展开输入框"
+          >
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-500 text-white shadow-sm">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14m7-7H5" />
+              </svg>
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium text-gray-800 dark:text-gray-100">
+                {prompt.trim() ? stripImageMentionMarkers(prompt).replace(/\s+/g, ' ').trim() : '展开输入框'}
+              </div>
+              <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                {inputImages.length ? `${inputImages.length} 张参考图 · ` : ''}{params.size} · {params.output_format.toUpperCase()}
+              </div>
+            </div>
+            <span className="rounded-lg px-2 py-1 text-xs font-semibold text-blue-600 dark:text-blue-300">展开</span>
+          </button>
+        ) : (
+        <div ref={cardRef} className="relative bg-white/70 dark:bg-gray-900/70 backdrop-blur-2xl border border-white/50 dark:border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl p-3 sm:p-4 ring-1 ring-black/5 dark:ring-white/10">
           {/* 移动端拖动条 */}
           <div
             ref={handleRef}
@@ -1976,6 +2006,18 @@ export default function InputBar() {
           >
             <div className={`w-10 h-1 rounded-full bg-gray-300 dark:bg-white/[0.06] transition-transform duration-200 ${mobileCollapsed ? 'scale-x-75' : ''}`} />
           </div>
+
+          <button
+            type="button"
+            onClick={() => setBarCollapsed(true)}
+            className="absolute right-3 top-3 hidden rounded-full p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-white/[0.08] dark:hover:text-gray-200 sm:flex"
+            title="收起输入框"
+            aria-label="收起输入框"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
 
           {/* 输入图片行（移动端可折叠） */}
           {inputImages.length > 0 && (
@@ -2286,6 +2328,7 @@ export default function InputBar() {
             onChange={handleReplaceFileUpload}
           />
         </div>
+        )}
       </div>
     </>
   )
