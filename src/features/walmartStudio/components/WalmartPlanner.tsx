@@ -1,20 +1,36 @@
 import { useMemo, useRef, useState, type ChangeEvent } from 'react'
-import { addImageFromFile, applyWalmartPromptToInput, submitWalmartPrompt, useStore } from '../appBridge'
 import {
+  addImageFromFile,
+  applyWalmartPromptToInput,
+  getWalmartPlannerProfile,
+  getWalmartPlannerProfiles,
+  isOfficialDeepSeekPlannerProfile,
+  setWalmartStudioSettings,
+  submitWalmartPrompt,
+  useStore,
+  useWalmartStudioSettings,
+  validateApiProfile,
+} from '../appBridge'
+import {
+  buildWalmartPlanPrompt,
   buildWalmartPrompt,
   DEFAULT_WALMART_DRAFT,
   getWalmartComplianceChecks,
   getWalmartRequestParams,
   WALMART_IMAGE_SLOTS,
+  type WalmartImagePlan,
   type WalmartImageSlotId,
   type WalmartPromptDraft,
   type WalmartResolution,
 } from '../lib/walmartPrompt'
+import { callWalmartPlannerApi } from '../lib/walmartPlannerApi'
 import { CloseIcon, CopyIcon, PhotoIcon, RefreshIcon } from '../../../components/icons'
 
 const FIELD_CLASS = 'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-white/[0.08] dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500'
 const LABEL_CLASS = 'mb-1.5 block text-xs font-medium text-gray-500 dark:text-gray-400'
 const API_MAX_IMAGES = 16
+const PLAN_LIST_CLASS = 'grid max-h-[360px] gap-2 overflow-y-auto overscroll-contain pr-1 custom-scrollbar'
+const DEEPSEEK_PLANNER_NOTICE = '当前 AI 策划配置为 DeepSeek 官方接口。DeepSeek 策划阶段不会读取参考图，系统会仅用 Listing 文本和你填写的商品信息生成策划；参考图仍会在正式生图时随生图请求发送。请把产品颜色、结构、配件、Logo、套装数量等关键特征写进 Listing 或商品信息中。'
 
 function updateDraft<K extends keyof WalmartPromptDraft>(
   draft: WalmartPromptDraft,
@@ -30,22 +46,74 @@ function getCheckClass(status: string) {
   return 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200'
 }
 
+function getPlannerFailureDetail(err: unknown): string {
+  const rawMessage = err instanceof Error ? err.message : String(err)
+  const message = rawMessage.trim() || '未知错误'
+  const lower = message.toLowerCase()
+  const hints: string[] = []
+
+  if (/401|invalid api key|incorrect api key|unauthorized|forbidden|权限|认证|鉴权/.test(lower)) {
+    hints.push('请检查 AI 策划配置里的 API Key 是否正确，并确认该 Key 有所选聊天/策划接口权限。')
+  }
+  if (/404|not found|responses|endpoint|route|路径|不存在/.test(lower)) {
+    hints.push('请确认 AI 策划配置的 API URL 支持 Responses API，不要使用只开放 /v1/images 的图片中转。')
+  }
+  if (/model|does not exist|unsupported|not supported|模型/.test(lower)) {
+    hints.push('请确认 AI 策划配置使用的是文本/多模态模型，而不是 gpt-image-2。')
+  }
+  if (/json_schema|schema|structured|text\.format|response_format|strict/.test(lower)) {
+    hints.push('该接口可能不支持当前 Responses JSON Schema 输出参数。')
+  }
+  if (/failed to fetch|network|cors|load failed|连接|网络|跨域/.test(lower)) {
+    hints.push('浏览器未能连接到策划接口；请检查网络、跨域设置，或开启应用里的 API 代理。')
+  }
+
+  return [message, ...hints].join('\n\n')
+}
+
+function getPlanSummary(planMarkdown: string) {
+  const lines = planMarkdown
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^#+\s*/, '').replace(/^\s*[-*]\s*/, '').trim())
+    .filter(Boolean)
+  return lines[0] ?? ''
+}
+
+function isAbortError(err: unknown): boolean {
+  return (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError') ||
+    (err instanceof Error && err.name === 'AbortError')
+}
+
 export default function WalmartPlanner() {
+  const settings = useStore((s) => s.settings)
   const inputImages = useStore((s) => s.inputImages)
+  const setShowSettings = useStore((s) => s.setShowSettings)
   const removeInputImage = useStore((s) => s.removeInputImage)
   const clearInputImages = useStore((s) => s.clearInputImages)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const showToast = useStore((s) => s.showToast)
+  const walmartSettings = useWalmartStudioSettings()
   const [draft, setDraft] = useState<WalmartPromptDraft>(DEFAULT_WALMART_DRAFT)
   const [slotId, setSlotId] = useState<WalmartImageSlotId>('primary')
   const [resolution, setResolution] = useState<WalmartResolution>('2k')
+  const [listingText, setListingText] = useState('')
+  const [imagePlans, setImagePlans] = useState<WalmartImagePlan[]>([])
+  const [selectedPlanIndex, setSelectedPlanIndex] = useState<number | null>(null)
+  const [isPlanning, setIsPlanning] = useState(false)
+  const [plannerError, setPlannerError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const plannerAbortControllerRef = useRef<AbortController | null>(null)
 
-  const prompt = useMemo(() => buildWalmartPrompt(draft, slotId), [draft, slotId])
+  const selectedPlan = selectedPlanIndex == null ? null : imagePlans[selectedPlanIndex] ?? null
+  const prompt = useMemo(() => selectedPlan ? buildWalmartPlanPrompt(selectedPlan) : buildWalmartPrompt(draft, slotId), [draft, selectedPlan, slotId])
   const params = useMemo(() => getWalmartRequestParams(resolution), [resolution])
   const checks = useMemo(() => getWalmartComplianceChecks(draft, slotId, inputImages.length), [draft, slotId, inputImages.length])
   const selectedSlot = WALMART_IMAGE_SLOTS.find((slot) => slot.id === slotId) ?? WALMART_IMAGE_SLOTS[0]
+  const plannerProfiles = getWalmartPlannerProfiles(settings)
+  const plannerProfile = getWalmartPlannerProfile(settings, walmartSettings.plannerProfileId)
+  const plannerProfileValidation = plannerProfile ? validateApiProfile(plannerProfile) : '未选择支持 Responses API 的 AI 策划配置'
+  const plannerUsesOfficialDeepSeek = plannerProfile ? isOfficialDeepSeekPlannerProfile(plannerProfile) : false
 
   const handleFiles = async (files: FileList | null) => {
     if (!files?.length) return
@@ -70,9 +138,80 @@ export default function WalmartPlanner() {
     event.target.value = ''
   }
 
+  const selectSlot = (nextSlotId: WalmartImageSlotId) => {
+    setSlotId(nextSlotId)
+    const planIndex = imagePlans.findIndex((plan) => plan.slotId === nextSlotId)
+    setSelectedPlanIndex(planIndex >= 0 ? planIndex : null)
+  }
+
+  const selectPlan = (index: number) => {
+    const plan = imagePlans[index]
+    setSelectedPlanIndex(plan ? index : null)
+    if (plan) setSlotId(plan.slotId)
+  }
+
+  const createAiPlan = async () => {
+    if (isPlanning) {
+      showToast('AI 策划正在进行中', 'info')
+      return
+    }
+    if (!listingText.trim()) {
+      setPlannerError('请先粘贴 Walmart 标题、五点描述或规格信息。')
+      showToast('请先粘贴 Listing 文本', 'error')
+      return
+    }
+    if (!plannerProfile) {
+      setPlannerError('未选择支持 Responses API 的 AI 策划配置。\n\n请在设置 -> API 中创建或选择一个 Responses 配置；生图配置继续使用 Images API，不要把 gpt-image-2 用作策划模型。')
+      showToast('AI 策划配置缺失', 'error')
+      return
+    }
+    if (plannerProfileValidation) {
+      setPlannerError(`AI 策划配置「${plannerProfile.name}」不完整：${plannerProfileValidation}`)
+      showToast('AI 策划配置不完整', 'error')
+      return
+    }
+
+    const controller = new AbortController()
+    plannerAbortControllerRef.current = controller
+    setIsPlanning(true)
+    setPlannerError('')
+    try {
+      const result = await callWalmartPlannerApi({
+        listingText,
+        baseDraft: draft,
+        profile: plannerProfile,
+        referenceImageDataUrls: inputImages.map((image) => image.dataUrl),
+        signal: controller.signal,
+      })
+      setDraft({
+        ...DEFAULT_WALMART_DRAFT,
+        ...draft,
+        ...result.parsed.inferred,
+      })
+      setImagePlans(result.plans)
+      setSelectedPlanIndex(0)
+      setSlotId(result.plans[0]?.slotId ?? 'primary')
+      showToast(`AI 策划已生成 ${result.plans.length} 张 Walmart 图片方案`, 'success')
+    } catch (err) {
+      if (isAbortError(err)) return
+      setPlannerError(getPlannerFailureDetail(err))
+      showToast('AI 策划失败，请查看详情', 'error')
+    } finally {
+      if (plannerAbortControllerRef.current === controller) plannerAbortControllerRef.current = null
+      setIsPlanning(false)
+    }
+  }
+
+  const stopAiPlan = () => {
+    plannerAbortControllerRef.current?.abort()
+    plannerAbortControllerRef.current = null
+    setIsPlanning(false)
+    showToast('AI 策划已停止', 'info')
+  }
+
   const applyPrompt = () => {
     applyWalmartPromptToInput(prompt, params)
-    showToast('已填入 Walmart 图片提示词', 'success')
+    showToast(selectedPlan ? `已填入 ${selectedPlan.slot} 图片提示词` : '已填入 Walmart 图片提示词', 'success')
   }
 
   const submitPrompt = async () => {
@@ -104,6 +243,10 @@ export default function WalmartPlanner() {
     setDraft(DEFAULT_WALMART_DRAFT)
     setSlotId('primary')
     setResolution('2k')
+    setListingText('')
+    setImagePlans([])
+    setSelectedPlanIndex(null)
+    setPlannerError('')
     showToast('Walmart 工作台已清空', 'info')
   }
 
@@ -204,6 +347,71 @@ export default function WalmartPlanner() {
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/[0.08] dark:bg-gray-950">
+            <div className="mb-3">
+              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">AI 策划</div>
+              <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">粘贴 Walmart 标题、五点、规格或竞品文案，一次生成 MAIN + ALT1-ALT4。</div>
+            </div>
+            <label>
+              <span className={LABEL_CLASS}>Listing 文本</span>
+              <textarea
+                value={listingText}
+                onChange={(event) => setListingText(event.target.value)}
+                className={`${FIELD_CLASS} min-h-36 resize-y`}
+                placeholder="Title: ...&#10;Bullet 1: ...&#10;Specifications: ..."
+              />
+            </label>
+            <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-white/[0.08] dark:bg-gray-900">
+              <label>
+                <span className={LABEL_CLASS}>AI 策划配置</span>
+                <select
+                  value={plannerProfile?.id ?? ''}
+                  onChange={(event) => setWalmartStudioSettings({ plannerProfileId: event.target.value || null })}
+                  className={FIELD_CLASS}
+                >
+                  {plannerProfiles.length ? (
+                    plannerProfiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>{profile.name} · {profile.model}</option>
+                    ))
+                  ) : (
+                    <option value="">未找到 Responses 配置</option>
+                  )}
+                </select>
+              </label>
+              <div className="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                {plannerProfile ? `${plannerProfile.name} · ${plannerProfile.model}` : '未配置，请在设置中创建一个 Responses 策划配置'}
+                {plannerProfileValidation ? `（${plannerProfileValidation}）` : ''}
+              </div>
+              {plannerUsesOfficialDeepSeek && (
+                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200">
+                  {DEEPSEEK_PLANNER_NOTICE}
+                </div>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={isPlanning ? stopAiPlan : createAiPlan}
+                  disabled={!isPlanning && Boolean(plannerProfileValidation)}
+                  className={`inline-flex h-10 items-center rounded-lg px-4 text-sm font-semibold text-white transition ${isPlanning ? 'cursor-wait bg-gray-500 hover:bg-gray-600' : plannerProfileValidation ? 'cursor-not-allowed bg-gray-300 dark:bg-white/[0.12]' : 'bg-blue-600 hover:bg-blue-500'}`}
+                >
+                  {isPlanning ? '停止策划' : 'AI策划'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSettings(true, 'api')}
+                  className="inline-flex h-10 items-center rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50 dark:border-white/[0.08] dark:bg-gray-950 dark:text-gray-200 dark:hover:bg-white/[0.04]"
+                >
+                  打开 API 设置
+                </button>
+              </div>
+            </div>
+            {plannerError && (
+              <pre className="mt-3 whitespace-pre-wrap rounded-lg border border-red-200 bg-red-50 p-3 text-xs leading-relaxed text-red-800 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200">
+                {plannerError}
+              </pre>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/[0.08] dark:bg-gray-950">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">产品参考图</div>
@@ -275,7 +483,7 @@ export default function WalmartPlanner() {
                 <button
                   key={slot.id}
                   type="button"
-                  onClick={() => setSlotId(slot.id)}
+                  onClick={() => selectSlot(slot.id)}
                   className={`min-h-[70px] rounded-lg border px-3 py-2 text-left transition ${slotId === slot.id ? 'border-blue-300 bg-blue-50 text-blue-900 ring-2 ring-blue-500/10 dark:border-blue-400/50 dark:bg-blue-500/10 dark:text-blue-100' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-white/[0.08] dark:bg-gray-950 dark:text-gray-300 dark:hover:bg-white/[0.04]'}`}
                 >
                   <div className="text-xs font-black">{slot.shortLabel}</div>
@@ -284,6 +492,47 @@ export default function WalmartPlanner() {
               ))}
             </div>
           </div>
+
+          {imagePlans.length > 0 && (
+            <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/[0.08] dark:bg-gray-950">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">逐张策划</div>
+                  <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">选择图片位后，生成提示词会切换到对应方案。</div>
+                </div>
+                <span className="shrink-0 rounded-lg bg-gray-100 px-2 py-1 text-xs font-medium text-gray-500 dark:bg-white/[0.06] dark:text-gray-400">
+                  {imagePlans.length} 张
+                </span>
+              </div>
+              <div className={PLAN_LIST_CLASS}>
+                {imagePlans.map((plan, index) => {
+                  const isSelected = selectedPlanIndex === index
+                  return (
+                    <button
+                      key={`${plan.slotId}-${index}`}
+                      type="button"
+                      onClick={() => selectPlan(index)}
+                      className={`rounded-xl border p-3 text-left transition ${isSelected ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-500/15 dark:border-blue-400/70 dark:bg-blue-500/10' : 'border-gray-200 bg-white hover:bg-gray-50 dark:border-white/[0.08] dark:bg-gray-950 dark:hover:bg-white/[0.05]'}`}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${isSelected ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 dark:bg-white/[0.08] dark:text-gray-300'}`}>
+                          {plan.slot}
+                        </span>
+                        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{plan.label}</span>
+                        {isSelected && (
+                          <span className="rounded bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white">当前</span>
+                        )}
+                      </div>
+                      <div className="mt-2 line-clamp-3 text-xs leading-relaxed text-gray-600 dark:text-gray-300">{getPlanSummary(plan.planMarkdown)}</div>
+                      <div className="mt-2 line-clamp-2 rounded-lg bg-white/70 px-2 py-1 text-[11px] leading-relaxed text-gray-500 dark:bg-white/[0.05] dark:text-gray-300">
+                        Negative：{plan.negativePrompt || '未提供'}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="grid gap-2 sm:grid-cols-5">
             {checks.map((check) => (
@@ -296,7 +545,7 @@ export default function WalmartPlanner() {
 
           <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/[0.08] dark:bg-gray-950">
             <div className="mb-2 flex items-center justify-between">
-              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">生成提示词</div>
+              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">生成提示词{selectedPlan ? ` · ${selectedPlan.slot}` : ''}</div>
               <div className="text-xs text-gray-500 dark:text-gray-400">{params.size} · JPEG · 90</div>
             </div>
             <textarea value={prompt} readOnly className={`${FIELD_CLASS} min-h-[460px] resize-y font-mono text-xs leading-relaxed`} />

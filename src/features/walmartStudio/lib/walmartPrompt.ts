@@ -24,6 +24,21 @@ export interface WalmartImageSlot {
   guidance: string[]
 }
 
+export interface WalmartListingParseResult {
+  title: string
+  bullets: string[]
+  inferred: Partial<WalmartPromptDraft>
+}
+
+export interface WalmartImagePlan {
+  slotId: WalmartImageSlotId
+  slot: string
+  label: string
+  planMarkdown: string
+  prompt: string
+  negativePrompt: string
+}
+
 export const DEFAULT_WALMART_DRAFT: WalmartPromptDraft = {
   productTitle: '',
   category: '',
@@ -166,6 +181,15 @@ export function buildWalmartPrompt(draft: WalmartPromptDraft, slotId: WalmartIma
     '- Photorealistic commercial product photography, sharp product edges, clean lighting, accurate proportions, no artifacts, no pixelation.',
     '- If reference images are provided, preserve the exact product appearance and do not invent extra parts, logos, accessories, packaging text, or variants.',
   ].join('\n')
+}
+
+export function buildWalmartPlanPrompt(plan: Pick<WalmartImagePlan, 'prompt' | 'negativePrompt'>) {
+  return [
+    plan.prompt.trim(),
+    plan.negativePrompt.trim() ? `Negative prompt:\n${plan.negativePrompt.trim()}` : '',
+    WALMART_COMPLIANCE_GUARD,
+    'If reference images are provided, preserve the exact product appearance and do not invent extra parts, logos, accessories, packaging text, or variants.',
+  ].filter(Boolean).join('\n\n')
 }
 
 export function getWalmartComplianceChecks(draft: WalmartPromptDraft, slotId: WalmartImageSlotId, referenceImageCount: number) {
